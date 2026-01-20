@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>{{ title }} - Steam Insights</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #171a21;
+            color: #c7d5e0;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Estilos de Botones */
+        .nav-bar {
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            background-color: #2a475e;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 0 10px;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #66c0f4;
+            color: black;
+        }
+
+        /* Estilos Generales */
+        .card {
+            background: #1b2838;
+            margin: 20px auto;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        }
+
+        .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .col {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        h1 {
+            color: #66c0f4;
+            margin-bottom: 5px;
+        }
+
+        h3 {
+            color: #66c0f4;
+            border-bottom: 1px solid #2a475e;
+            padding-bottom: 10px;
+        }
+
+        /* ESTILO PARA EL TOTAL */
+        .total-text {
+            font-size: 1.1em;
+            color: #8b9bb4;
+            margin-top: 0;
+            font-weight: 500;
+        }
+
+        ul {
+            list-style: none;
+            padding: 0;
+            text-align: left;
+        }
+
+        li {
+            padding: 10px;
+            border-bottom: 1px solid #2a475e;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .score {
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .good {
+            color: #a4d007;
+            background: rgba(164, 208, 7, 0.1);
+        }
+
+        .bad {
+            color: #ff4d4d;
+            background: rgba(255, 77, 77, 0.1);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="nav-bar">
+            <a href="/" class="btn">🎮 Ver Juegos</a>
+            <a href="/dlcs" class="btn">📦 Ver DLCs</a>
+            <a href="/business" class="btn" style="background-color: #a4d007; color: #000;">📈 Business Insights</a>
+        </div>
+
+        <h1>📊 {{ title }}</h1>
+
+        <p id="totales" class="total-text">Calculando datos...</p>
+
+        <div class="card" style="width: 300px;">
+            <canvas id="globalChart"></canvas>
+        </div>
+
+        <div class="row">
+            <div class="card col">
+                <h3>🏆 Top 5 Mejores</h3>
+                <ul id="topList">Cargando...</ul>
+            </div>
+
+            <div class="card col">
+                <h3>💀 Top 5 Peores</h3>
+                <ul id="bottomList">Cargando...</ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Obtenemos el endpoint desde Python (/api/games o /api/dlcs)
+        const endpoint = "{{ api_endpoint }}";
+
+        fetch(endpoint)
+            .then(res => res.json())
+            .then(data => {
+
+                // --- 1. CALCULAR Y MOSTRAR TOTALES ---
+                // Sumamos positivos y negativos que vienen del JSON
+                const total = data.global_pos + data.global_neg;
+
+                // Actualizamos el texto formateando el número con comas
+                document.getElementById('totales').innerText =
+                    `Total Procesado en esta categoría: ${total.toLocaleString()} reseñas`;
+
+
+                // --- 2. RENDERIZAR GRÁFICO ---
+                new Chart(document.getElementById('globalChart'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Positivos', 'Negativos'],
+                        datasets: [{
+                            data: [data.global_pos, data.global_neg],
+                            backgroundColor: ['#66c0f4', '#e87048'],
+                            borderColor: 'white',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        plugins: {
+                            legend: { labels: { color: 'white' } }
+                        }
+                    }
+                });
+
+                // --- 3. LLENAR LISTAS ---
+                const fillList = (id, items, styleClass) => {
+                    const list = document.getElementById(id);
+                    if (items.length === 0) {
+                        list.innerHTML = "<li style='justify-content:center'>Sin datos suficientes</li>";
+                        return;
+                    }
+                    list.innerHTML = items.map(g =>
+                        `<li>${g.game} <span class="score ${styleClass}">${g.ratio.toFixed(1)}%</span></li>`
+                    ).join('');
+                };
+
+                fillList('topList', data.top, 'good');
+                fillList('bottomList', data.bottom, 'bad');
+            });
+    </script>
+</body>
+
+</html>

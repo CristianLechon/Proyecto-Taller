@@ -1,0 +1,209 @@
+
+Paso 0: Guardar la base all_reviews.csv en la carpeta datos del proyecto.
+
+Paso 1: Descargar imágenes
+docker build -t hadoop-custom .
+
+Paso 2: Levantar contenedores
+docker compose up -d
+
+
+Paso 3:
+-Entrar al nodo
+docker exec -it namenode bash
+
+-Formatear el nodo (opcional pero IMPORTANTE la primera ejecución) 
+hdfs namenode -format
+
+-iniciar hfs
+start-dfs.sh
+
+-iniciar los demonios para controlar ejecuciones de mapreduce
+start-yarn.sh
+
+Nota: Primero debo iniciar el hdfs y el yarn si se apaga el contenedor 
+
+-Crear la carpeta de destino en HDFS (si no existe)
+hdfs dfs -mkdir -p /user/root/steam_project/data
+
+-Copiar el archivo del volumen montado hacia HDFS (se demora en compilar)
+hdfs dfs -put /datos_entrada/all_reviews.csv /user/root/steam_project/data/
+
+-Para realizar la limpieza moverse a la carpeta Java en el proyecto
+Nota:abrir en otra terminal
+docker cp LimpiezaSteam.py namenode:/tmp/
+-esta va en la anterior consola
+spark-submit /tmp/LimpiezaSteam.py
+
+-Otra vez en la consola de la carpeta Java (esto es para guardar el reduce en top)
+docker cp Steam.java namenode:/tmp/
+-esto es en el bash (anterior consola)
+cd /tmp
+export HADOOP_CLASSPATH=$($HADOOP_HOME/bin/hadoop classpath)
+javac -classpath ${HADOOP_CLASSPATH} -d . Steam.java
+jar -cvf steam.jar *.class
+hadoop jar steam.jar Steam /user/root/steam_project/clean_data /user/root/steam_project/output_final
+hdfs dfs -cat /user/root/steam_project/output_final/part-r-00000 | head -n 10
+
+DLC::#AkiRobots Soundtrack      8       0
+DLC::#monstercakes OST  3       1
+DLC::$100 Artbook       1       0
+DLC::(OST) Injection Pi23 NNNN  0       1
+DLC::*NEW* SCUFFED EPIC BHOP DROPPER EXPANSION  4       0
+DLC::*NEW* SCUFFED EPIC BHOP MLG EXPANSION (POG CHAMP)  16      1
+DLC::*NEW* SCUFFED EPIC SEASON PASS     11      0
+DLC::*NEW* SCUFFED STARTER PACK 5       0
+DLC::// OVERDRIVE Soundtrack    1       0
+DLC:://TODO: today Soundtrack   1       0
+
+-Borrar carpeta (opcional, esto es en caso de que falle la operación de arriba)
+hdfs dfs -rm -r /user/root/steam_project/output_final
+
+-Mando en otra consola nueva 
+docker exec -it namenode pyspark
+
+-ste es para la consola spark
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType
+
+schema = StructType([
+    StructField("raw_key", StringType(), True),
+    StructField("positivos", IntegerType(), True),
+    StructField("negativos", IntegerType(), True)
+])
+
+df = spark.read.csv("hdfs://namenode:9000/user/root/steam_project/output_final", sep="\t", schema=schema)
+df.createOrReplaceTempView("datos_crudos")
+spark.sql("""
+    SELECT 
+        split(raw_key, '::')[0] as Tipo,
+        split(raw_key, '::')[1] as Juego,
+        positivos,
+        negativos,
+        (positivos + negativos) as Total,
+        ROUND((positivos / (positivos + negativos)) * 100, 2) as Ratio_Aprobacion
+    FROM datos_crudos
+    WHERE raw_key LIKE '%::%'
+""").createOrReplaceTempView("steam_analytics")
+
+print("Datos cargados desde tu flujo HDFS/MapReduce.")
+print("\n--- EVIDENCIA A: PATRONES DE ENGAGEMENT (Juegos vs DLCs) ---")
+spark.sql("""
+    SELECT Tipo, COUNT(*) as Cantidad, SUM(Total) as Engagement_Total, ROUND(AVG(Ratio_Aprobacion),2) as Satisfaccion_Promedio 
+    FROM steam_analytics GROUP BY Tipo
+""").show()
+
+print("\n--- EVIDENCIA B: FACTOR 'MASIVIDAD' (¿Lo viral es tóxico?) ---")
+spark.sql("""
+    SELECT 
+        CASE WHEN Total < 100 THEN 'Nicho' WHEN Total > 1000 THEN 'Viral' ELSE 'Medio' END as Trafico,
+        COUNT(*) as Cantidad, ROUND(AVG(Ratio_Aprobacion),2) as Calidad_Promedio
+    FROM steam_analytics WHERE Tipo = 'GAME'
+    GROUP BY CASE WHEN Total < 100 THEN 'Nicho' WHEN Total > 1000 THEN 'Viral' ELSE 'Medio' END
+    ORDER BY Calidad_Promedio DESC
+""").show()
+
+print("\n--- EVIDENCIA C: IMPACTO EARLY ACCESS (Demos/Prologues) ---")
+spark.sql("""
+    SELECT 
+        CASE WHEN lower(Juego) LIKE '%prologue%' OR lower(Juego) LIKE '%demo%' THEN 'Early/Demo' ELSE 'Juego Final' END as Version,
+        COUNT(*) as Cantidad, ROUND(AVG(Ratio_Aprobacion),2) as Calidad_Promedio
+    FROM steam_analytics WHERE Tipo = 'GAME'
+    GROUP BY CASE WHEN lower(Juego) LIKE '%prologue%' OR lower(Juego) LIKE '%demo%' THEN 'Early/Demo' ELSE 'Juego Final' END
+""").show()
+
+Paso 4:
+-Descarga el archivo de HDFS a la carpeta /tmp del contenedor namenode
+docker exec -it namenode hdfs dfs -get /user/root/steam_project/output_final/part-r-00000 /tmp/resultado_final.tsv
+Copiar del contenedor 'namenode' a tu PC
+docker cp namenode:/tmp/resultado_final.tsv ./resultado_final.tsv
+Copiar de tu PC al contenedor 'mongodb'
+docker cp ./resultado_final.tsv mongodb:/tmp/resultado_final.tsv
+docker exec -it mongodb mongoimport --db steam_project --collection games_resultado --type tsv --file /tmp/resultado_final.tsv --fields game,positivos,negativos
+Verificar y Capturar
+docker exec -it mongodb mongosh steam_project --eval "db.games_resultado.find().limit(5)"
+
+-Paso 5: 
+docker exec -it namenode bash
+apt-get update && apt-get install -y python3-pip
+pip3 install pymongo
+
+-esto dentro de la consola spark 
+import pymongo
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType
+
+try:
+    client = pymongo.MongoClient("mongodb://mongodb:27017/")
+    db = client["steam_project"]
+    collection = db["insights_business"]
+    # Borramos datos viejos para no repetir
+    collection.delete_many({}) 
+    print("Conexión a MongoDB exitosa.")
+except Exception as e:
+    print(f"Error conectando a Mongo: {e}")
+
+schema = StructType([
+    StructField("raw_key", StringType(), True),
+    StructField("positivos", IntegerType(), True),
+    StructField("negativos", IntegerType(), True)
+])
+df = spark.read.csv("hdfs://namenode:9000/user/root/steam_project/output_final", sep="\t", schema=schema)
+
+df.createOrReplaceTempView("datos_crudos")
+spark.sql("""
+    SELECT 
+        split(raw_key, '::')[0] as Tipo,
+        split(raw_key, '::')[1] as Juego,
+        positivos + negativos as Total,
+        ROUND((positivos / (positivos + negativos)) * 100, 2) as Ratio_Aprobacion
+    FROM datos_crudos
+    WHERE raw_key LIKE '%::%'
+""").createOrReplaceTempView("steam_analytics")
+
+print("--- Guardando Reportes... ---")
+
+df_eng = spark.sql("SELECT Tipo, COUNT(*) as Cantidad, SUM(Total) as Engagement, ROUND(AVG(Ratio_Aprobacion),2) as Calidad FROM steam_analytics GROUP BY Tipo")
+collection.insert_one({
+    "titulo": "Engagement por Tipo", 
+    "data": [row.asDict() for row in df_eng.collect()]
+})
+print("Engagement guardado.")
+
+df_traf = spark.sql("""
+    SELECT CASE WHEN Total < 100 THEN 'Nicho' WHEN Total > 1000 THEN 'Viral' ELSE 'Medio' END as Trafico,
+    COUNT(*) as Cantidad, ROUND(AVG(Ratio_Aprobacion),2) as Calidad
+    FROM steam_analytics WHERE Tipo = 'GAME'
+    GROUP BY CASE WHEN Total < 100 THEN 'Nicho' WHEN Total > 1000 THEN 'Viral' ELSE 'Medio' END
+""")
+collection.insert_one({
+    "titulo": "Impacto Masividad", 
+    "data": [row.asDict() for row in df_traf.collect()]
+})
+print("Tráfico guardado.")
+
+df_early = spark.sql("""
+    SELECT CASE WHEN lower(Juego) LIKE '%prologue%' OR lower(Juego) LIKE '%demo%' THEN 'Early/Demo' ELSE 'Juego Final' END as Version,
+    COUNT(*) as Cantidad, ROUND(AVG(Ratio_Aprobacion),2) as Calidad
+    FROM steam_analytics WHERE Tipo = 'GAME'
+    GROUP BY CASE WHEN lower(Juego) LIKE '%prologue%' OR lower(Juego) LIKE '%demo%' THEN 'Early/Demo' ELSE 'Juego Final' END
+""")
+collection.insert_one({
+    "titulo": "Efectividad Demos", 
+    "data": [row.asDict() for row in df_early.collect()]
+})
+print("Early Access guardado.")
+print("¡Proceso terminado! Ahora revisa Mongo.")
+
+-Eso es de prueba va n consola nueva
+docker exec -it mongodb mongosh steam_project --eval "db.insights_business.find().limit(5)"
+docker exec -it mongodb mongosh steam_project --eval "db.insights_business.find().limit(5)"
+
+
+-Entrar a la consola de Mongo (a veces es 'mongo' o 'mongosh' dependiendo de la versión)
+docker exec -it mongodb mongosh
+
+docker restart dashboard
+si hiciste cambios grandes
+docker-compose up -d --build dashboard
+
+db.games_resultado.find().limit(5)
+db.games_sentiment.drop()

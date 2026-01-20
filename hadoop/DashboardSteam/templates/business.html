@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Business Intelligence - Steam</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #1b2838;
+            color: #c7d5e0;
+            margin: 0;
+            padding: 20px;
+            text-align: center;
+        }
+
+        /* Navegación igual al index */
+        .nav-bar {
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            background-color: #2a475e;
+            color: white;
+            padding: 10px 20px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 0 10px;
+            font-weight: bold;
+        }
+
+        .btn:hover {
+            background-color: #66c0f4;
+            color: black;
+        }
+
+        .active {
+            background-color: #66c0f4;
+            color: black;
+        }
+
+        h1 {
+            color: #fff;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        /* Grid de Gráficos */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: #171a21;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+            border: 1px solid #2a475e;
+        }
+
+        h2 {
+            color: #66c0f4;
+            font-size: 1.2rem;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #2a475e;
+            padding-bottom: 10px;
+        }
+
+        .insight-text {
+            font-size: 0.9rem;
+            color: #8b9bb4;
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="nav-bar">
+        <a href="/" class="btn">🎮 Juegos</a>
+        <a href="/dlcs" class="btn">📦 DLCs</a>
+        <a href="/business" class="btn active">📈 Business Insights</a>
+    </div>
+
+    <h1>Resultados de Minería de Datos</h1>
+    <p style="margin-bottom: 30px;">Análisis de Patrones y Comportamiento Masivo (Spark Engine)</p>
+
+    <div class="dashboard-grid">
+
+        <div class="card">
+            <h2>1. Satisfacción: Juegos vs DLCs</h2>
+            <canvas id="chartEngagement"></canvas>
+            <p class="insight-text">¿Los usuarios prefieren contenido adicional (DLC) sobre el juego base?</p>
+        </div>
+
+        <div class="card">
+            <h2>2. Impacto de la Masividad</h2>
+            <canvas id="chartTraffic"></canvas>
+            <p class="insight-text">¿Ser "Viral" afecta negativamente la calificación promedio?</p>
+        </div>
+
+        <div class="card">
+            <h2>3. Estrategia Early Access</h2>
+            <canvas id="chartEarly"></canvas>
+            <p class="insight-text">Comparativa de recepción entre Demos/Prologues y Lanzamientos Finales.</p>
+        </div>
+
+    </div>
+
+    <script>
+        // Configuración común para gráficos oscuros
+        Chart.defaults.color = '#c7d5e0';
+        Chart.defaults.borderColor = '#2a475e';
+
+        fetch('/api/business-data')
+            .then(res => res.json())
+            .then(data => {
+
+                // 1. CHART ENGAGEMENT
+                new Chart(document.getElementById('chartEngagement'), {
+                    type: 'bar',
+                    data: {
+                        labels: data.engagement.labels,
+                        datasets: [{
+                            label: '% Aprobación Promedio',
+                            data: data.engagement.values,
+                            backgroundColor: ['#66c0f4', '#acb2b8'], // Azul Steam y Gris
+                            borderWidth: 0
+                        }]
+                    },
+                    options: { scales: { y: { beginAtZero: false, min: 60 } } } // Zoom al top
+                });
+
+                // 2. CHART TRÁFICO
+                new Chart(document.getElementById('chartTraffic'), {
+                    type: 'line', // Línea para ver la tendencia
+                    data: {
+                        labels: data.traffic.labels,
+                        datasets: [{
+                            label: 'Calidad Percibida',
+                            data: data.traffic.values,
+                            borderColor: '#a4d007', // Verde
+                            backgroundColor: 'rgba(164, 208, 7, 0.2)',
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    }
+                });
+
+                // 3. CHART EARLY ACCESS
+                new Chart(document.getElementById('chartEarly'), {
+                    type: 'bar',
+                    data: {
+                        labels: data.early.labels,
+                        datasets: [{
+                            label: 'Recepción del Usuario',
+                            data: data.early.values,
+                            backgroundColor: ['#ff4d4d', '#66c0f4'], // Rojo y Azul
+                        }]
+                    },
+                    options: { indexAxis: 'y' } // Barras horizontales
+                });
+            });
+    </script>
+</body>
+
+</html>

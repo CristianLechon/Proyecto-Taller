@@ -1,0 +1,80 @@
+version: "3.8"
+
+services:
+  namenode:
+    build: .
+    container_name: namenode
+    hostname: namenode
+    image: hadoop-custom:latest
+    ports:
+      - "9870:9870" # Web UI HDFS
+      - "8088:8088" # Web UI YARN
+      - "4040:4040"
+    volumes:
+      - namenode-data:/usr/local/hadoop/dfs/name
+      - ./hadoop-conf:/usr/local/hadoop/etc/hadoop
+      - ./datos:/datos_entrada
+    networks:
+      - hadoop-net
+    tty: true
+
+  datanode1:
+    build: .
+    container_name: datanode1
+    hostname: datanode1
+    image: hadoop-custom:latest
+    ports:
+      - "9864:9864"
+    volumes:
+      - datanode1-data:/usr/local/hadoop/dfs/data
+      - ./hadoop-conf:/usr/local/hadoop/etc/hadoop
+    depends_on:
+      - namenode
+    networks:
+      - hadoop-net
+    tty: true
+
+  datanode2:
+    build: .
+    container_name: datanode2
+    hostname: datanode2
+    image: hadoop-custom:latest
+    ports:
+      - "9865:9864"
+    volumes:
+      - datanode2-data:/usr/local/hadoop/dfs/data
+      - ./hadoop-conf:/usr/local/hadoop/etc/hadoop
+    depends_on:
+      - namenode
+    networks:
+      - hadoop-net
+    tty: true
+
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb
+    hostname: mongodb
+    ports:
+      - "27017:27017"
+    networks:
+      - hadoop-net
+
+  dashboard:
+    build: ./DashboardSteam # Ruta a la carpeta donde creaste el Dockerfile
+    container_name: dashboard
+    hostname: dashboard
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mongodb 
+    networks:
+      - hadoop-net
+
+volumes:
+  namenode-data:
+  datanode1-data:
+  datanode2-data:
+
+networks:
+  hadoop-net:
+    driver: bridge
